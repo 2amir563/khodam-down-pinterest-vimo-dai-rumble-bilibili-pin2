@@ -1,11 +1,11 @@
 #!/bin/bash
-# Telegram Media Downloader Bot - Complete Installer (V28 - ULTIMATE STABILITY)
-# Focuses on: Best chance for download success by adding Proxy support and improved error handling.
+# Telegram Media Downloader Bot - Complete Installer (V29 - FINAL ENGLISH CLEAN CODE)
+# Focuses on: Pure English environment with ultimate stability and clear final instructions.
 
 set -e
 
 echo "=============================================="
-echo "🤖 Telegram Media Downloader Bot - V28 (ULTIMATE STABILITY)"
+echo "🤖 Telegram Media Downloader Bot - V29 (FINAL ENGLISH CLEAN CODE)"
 echo "=============================================="
 echo ""
 
@@ -37,10 +37,12 @@ fi
 echo "🌐 Enter an optional Proxy URL (e.g., socks5://user:pass@host:port or http://host:port). Leave blank if none:"
 read -p "📝 Proxy URL: " PROXY_URL
 
+print_status "Starting installation process..."
+
 # ============================================
 # STEP 1: System Update & Essential Tools
 # ============================================
-print_status "Updating and installing essential tools..."
+print_status "Updating and installing essential tools (Python3, PIP, FFmpeg)..."
 apt-get update -y
 apt-get install -y python3 python3-pip ffmpeg curl wget nano git build-essential
 
@@ -97,14 +99,14 @@ ${PROXY_LINE}
 ENVEOF
 
 # ============================================
-# STEP 5: Create Bot File (bot.py - V28)
+# STEP 5: Create Bot File (bot.py - V29)
 # ============================================
-print_status "Creating main bot file (bot.py - V28)..."
+print_status "Creating main bot file (bot.py - V29)..."
 
 cat > bot.py << 'PYEOF'
 #!/usr/bin/env python3
 """
-Telegram Media Downloader Bot - V28 (ULTIMATE STABILITY - Proxy and Format Optimization)
+Telegram Media Downloader Bot - V29 (FINAL ENGLISH CLEAN CODE - Proxy and Cookies Support)
 """
 
 import os
@@ -134,7 +136,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DELETE_AFTER = int(os.getenv("DELETE_AFTER_MINUTES", "2"))
 MAX_SIZE_MB = int(os.getenv("MAX_FILE_SIZE", "2000"))
 USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-PROXY_URL = os.getenv("PROXY_URL", "") # New: Get Proxy URL
+PROXY_URL = os.getenv("PROXY_URL", "")
 
 if not BOT_TOKEN:
     print("ERROR: BOT_TOKEN is missing in .env file.")
@@ -144,6 +146,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def clean_url(text):
+    """Clean URL from text"""
     if not text:
         return None
     text = text.strip()
@@ -158,6 +161,7 @@ def clean_url(text):
     return None
 
 def format_size(bytes_val):
+    """Format file size"""
     if bytes_val is None:
         return "Unknown"
     try:
@@ -170,24 +174,49 @@ def format_size(bytes_val):
     except:
         return "Unknown"
 
-async def get_video_info(url):
-    """Fetch video title and info using yt-dlp --dump-json"""
+def build_common_cmd(url, output_path=None, dump_json=False):
+    """Builds the common yt-dlp command list, applying proxy and cookies."""
     cmd = [
         "python3", "-m", "yt_dlp",
-        "--dump-json",
-        "--skip-download",
-        "--no-playlist",
-        "--ignore-errors",
         "--user-agent", USER_AGENT,
+        "--no-warnings",
+        "--ignore-errors",
+        "--no-playlist",
+        "--force-ipv4",
+        "--add-header", "Accept-Language: en-US,en;q=0.5",
+        "--add-header", "X-Requested-With: XMLHttpRequest",
         url
     ]
     
-    # Apply Proxy and Cookies if available
+    if dump_json:
+        cmd.extend(["--dump-json", "--skip-download"])
+    elif output_path:
+        cmd.extend([
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]/best",
+            "-o", output_path,
+            "--concurrent-fragments", "4",
+            "--limit-rate", "10M",
+            "--retries", "10",               
+            "--fragment-retries", "10",      
+            "--no-check-certificate", 
+            "--referer", "https://google.com/",
+            "--http-chunk-size", "10M",
+            "--force-overwrite"
+        ])
+
     if PROXY_URL:
         cmd.extend(["--proxy", PROXY_URL])
+        
     cookies_file = Path(os.getcwd()) / "cookies" / "cookies.txt"
     if cookies_file.exists():
         cmd.extend(["--cookies", str(cookies_file)])
+        
+    return cmd
+
+
+async def get_video_info(url):
+    """Fetch video title and info"""
+    cmd = build_common_cmd(url, dump_json=True)
         
     try:
         process = await asyncio.create_subprocess_exec(
@@ -199,55 +228,32 @@ async def get_video_info(url):
         
         if process.returncode == 0:
             try:
-                # yt-dlp may output multiple JSONs; we try to load the last one
+                # Load the last valid JSON object
                 info = json.loads(stdout.decode('utf-8').strip().split('\n')[-1])
                 return info.get('title', 'N/A')
             except json.JSONDecodeError:
                 logger.error("Failed to decode JSON from yt-dlp info.")
                 return "N/A"
         else:
-            # New: Return the specific error from info fetch stage
+            # Info fetch failed, return the error
             error_output = stderr.decode('utf-8', errors='ignore').strip().splitlines()[0] if stderr else "Unknown Error"
             logger.warning(f"Info fetch failed (Code {process.returncode}): {error_output}")
-            return f"N/A (Error: {error_output})"
+            
+            # If it's a known cookie issue, prioritize that message
+            if "logged-in" in error_output or "HTTP Error 404" in error_output:
+                return "N/A (Access/Login Required)"
+            
+            return f"N/A (Error: {error_output.replace('ERROR: ', '')})"
         
     except Exception as e:
         logger.error(f"Error fetching video info: {e}")
-        return "N/A"
+        return "N/A (Internal Error)"
+
 
 async def download_video(url, output_path):
-    # Optimized format selection: Best MP4 (video+audio) or fallback to best quality
-    download_format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]/best"
+    """Core download logic"""
     
-    cmd = [
-        "python3", "-m", "yt_dlp",
-        "-f", download_format, 
-        "-o", output_path,
-        "--no-warnings",
-        "--ignore-errors",
-        "--no-playlist",
-        "--concurrent-fragments", "4",
-        "--limit-rate", "10M",
-        "--retries", "10",               
-        "--fragment-retries", "10",      
-        "--user-agent", USER_AGENT, 
-        "--no-check-certificate", 
-        "--referer", "https://google.com/",
-        "--http-chunk-size", "10M",
-        "--force-ipv4", 
-        "--add-header", "Accept-Language: en-US,en;q=0.5", 
-        "--add-header", "X-Requested-With: XMLHttpRequest",
-        "--force-overwrite",
-        url
-    ]
-    
-    # Apply Proxy and Cookies
-    if PROXY_URL:
-        cmd.extend(["--proxy", PROXY_URL])
-        
-    cookies_file = Path(os.getcwd()) / "cookies" / "cookies.txt"
-    if cookies_file.exists():
-        cmd.extend(["--cookies", str(cookies_file)])
+    cmd = build_common_cmd(url, output_path=output_path)
     
     try:
         process = await asyncio.create_subprocess_exec(
@@ -266,7 +272,6 @@ async def download_video(url, output_path):
             if "HTTP Error 404" in error_output or "Private video" in error_output or "logged-in" in error_output:
                 return False, f"Download failed. Access/Login Required. Please use cookies."
             
-            # Specific Geo-block and security errors from BiliBili/Rumble
             if "HTTP Error 412" in error_output or "HTTP Error 403" in error_output:
                  return False, f"Download failed. Potential Geo-Block or Security Error. Try a proxy or cookies."
 
@@ -279,16 +284,20 @@ async def download_video(url, output_path):
         return False, f"Internal Error: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start command"""
     welcome = f"""
-🤖 *UNIVERSAL Media Downloader Bot - V28 (Ultimate Stability)*
+🤖 *UNIVERSAL Media Downloader Bot - V29*
 
 📝 *How to Use:*
 1. Send any media URL (Pinterest, Vimeo, Bilibili, etc.).
 2. The bot will download and send the file with the video title in the caption.
+
+⚠️ If you encounter 'Access/Login Required' errors, you must provide a valid `cookies.txt` file.
 """
     await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN)
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle URL messages"""
     original_url = update.message.text
     url = clean_url(original_url)
     
@@ -308,6 +317,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         site = "UNKNOWN"
         
+    # Update status with fetched title
     await msg.edit_text(f"📥 *Downloading...* (Title: {video_title[:50]}...)", parse_mode=ParseMode.MARKDOWN)
     
     # Generate filename
@@ -375,6 +385,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ *Upload Failed*\n\nError: {str(upload_error)[:100]}", parse_mode=ParseMode.MARKDOWN)
 
 def main():
+    """Main function to start the bot"""
     if not os.access(__file__, os.X_OK):
         try:
             os.chmod(__file__, 0o755) 
@@ -441,20 +452,18 @@ sleep 3
 # ============================================
 echo ""
 echo "================================================"
-echo "🎉 Installation Complete (V28 - Ultimate Stability)"
+echo "🎉 Installation Complete (V29 - Final English Code)"
 echo "================================================"
-echo "💡 ربات در حال اجراست. لطفاً لینک‌ها را دوباره تست کنید."
-echo "⚠️ اگر خطاها ادامه داشت، باید کوکی‌ها و یا پروکسی را تنظیم کنید."
-echo ""
-echo "🍪 تنظیم کوکی‌ها:"
-echo "------------------------------------------------"
-echo "1. فایل cookies.txt را از کاربر دریافت کنید."
-echo "2. آن را در مسیر زیر قرار دهید و ربات را ری‌استارت کنید:"
-echo "   /opt/telegram-media-bot/cookies/cookies.txt"
-echo "------------------------------------------------"
-echo "🌐 تنظیم پروکسی (اختیاری):"
-echo "------------------------------------------------"
-echo "پروکسی (مانند socks5://...) در فایل .env تنظیم شد."
-echo "اگر پروکسی را وارد نکردید، می‌توانید فایل .env را ویرایش و PROXY_URL را پر کنید."
+echo "💡 The bot is running. Please test the links again."
+echo "---"
+echo "⚠️ CRITICAL FINAL STEPS TO RESOLVE ERRORS:"
+echo "---"
+echo "1. COOKIES (Required for Login/Access Errors like Vimeo, Pinterest, BiliBili):"
+echo "   - Obtain a valid 'cookies.txt' file from a logged-in browser session."
+echo "   - Place the file in: /opt/telegram-media-bot/cookies/cookies.txt"
+echo "2. PROXY (Required for Geo-Block/Security Errors like Rumble, BiliBili 403/412):"
+echo "   - If you skipped the prompt, edit /opt/telegram-media-bot/.env and set the PROXY_URL."
+echo "3. RESTART BOT:"
+echo "   - After adding cookies or changing the .env file, run: systemctl restart telegram-media-bot"
 echo "------------------------------------------------"
 echo "================================================"
